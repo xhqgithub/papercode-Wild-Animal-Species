@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['Tiger']
+
+roboflow:
+  workspace: trackabox-4ejy9
+  project: tiger-ahgqa
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/trackabox-4ejy9/tiger-ahgqa/dataset/1

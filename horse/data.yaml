@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['horse']
+
+roboflow:
+  workspace: new-clr9v
+  project: horse-kofgt
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/new-clr9v/horse-kofgt/dataset/1
