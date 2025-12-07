@@ -8,9 +8,9 @@ EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", type=str, required=True, help="data.yaml 路径")
-    # 保持向后兼容：--pred-root 仍可用（等价于 --pred-root-awe）
-    ap.add_argument("--pred-root", type=str, default="", help="AWE 融合预测根目录（兼容旧参数名）")
-    ap.add_argument("--pred-root-awe", type=str, default="", help="AWE 融合预测根目录（新）")
+    # 保持向后兼容：--pred-root 仍可用（等价于 --pred-root-fafw）
+    ap.add_argument("--pred-root", type=str, default="", help="fafw 融合预测根目录（兼容旧参数名）")
+    ap.add_argument("--pred-root-fafw", type=str, default="", help="fafw 融合预测根目录（新）")
     ap.add_argument("--pred-root-base", type=str, default="", help="未增强（基线）预测根目录（可选）")
     ap.add_argument("--split", type=str, default="val", choices=["train", "val", "test"])
     ap.add_argument("--iou-start", type=float, default=0.50)
@@ -255,22 +255,22 @@ def main():
     data = yaml.safe_load(open(args.data, "r"))
     data["__path__"] = args.data  # 用于定位相对路径
 
-    # 解析 AWE 预测目录
-    pred_root_awe = args.pred_root_awe or args.pred_root
-    if not pred_root_awe:
-        raise SystemExit("[ERR] 请提供 --pred-root-awe（或旧参数 --pred-root）作为 AWE 融合预测目录")
+    # 解析 fafw 预测目录
+    pred_root_fafw = args.pred_root_fafw or args.pred_root
+    if not pred_root_fafw:
+        raise SystemExit("[ERR] 请提供 --pred-root-fafw（或旧参数 --pred-root）作为 fafw 融合预测目录")
 
-    # 评估 AWE
-    awe = evaluate_one(data, args.split, pred_root_awe)
+    # 评估 fafw
+    fafw = evaluate_one(data, args.split, pred_root_fafw)
 
     print(f"\n=== Evaluation on {args.split} ===")
-    print("AWE Pred root :", str(Path(pred_root_awe).resolve()))
-    print(f"IoU thresholds: {np.round(awe['iou_thrs'], 2)}")
-    print(f"Images: {len(awe['stems'])}  |  missing preds (AWE): {awe['miss_pred']}")
-    print(f"[AWE] AP@0.50 : {awe['ap50']:.4f}")
-    print(f"[AWE] AP@0.75 : {awe['ap75']:.4f}")
-    print(f"[AWE] AP@[.5:.95] (mAP): {awe['map5095']:.4f}")
-    print(f"[AWE] P/R/F1 (IoU=0.5, YOUR LOGIC): {awe['P']:.4f} / {awe['R']:.4f} / {awe['F1']:.4f}")
+    print("fafw Pred root :", str(Path(pred_root_fafw).resolve()))
+    print(f"IoU thresholds: {np.round(fafw['iou_thrs'], 2)}")
+    print(f"Images: {len(fafw['stems'])}  |  missing preds (fafw): {fafw['miss_pred']}")
+    print(f"[fafw] AP@0.50 : {fafw['ap50']:.4f}")
+    print(f"[fafw] AP@0.75 : {fafw['ap75']:.4f}")
+    print(f"[fafw] AP@[.5:.95] (mAP): {fafw['map5095']:.4f}")
+    print(f"[fafw] P/R/F1 (IoU=0.5, YOUR LOGIC): {fafw['P']:.4f} / {fafw['R']:.4f} / {fafw['F1']:.4f}")
 
     # 可选：评估基线并对比
     if args.pred_root_base:
@@ -288,31 +288,31 @@ def main():
             r = (d / (b + 1e-12)) * 100.0
             return f"{a:.4f}  (Δ={d:+.4f}, {r:+.1f}%)"
 
-        print("\n=== AWE vs. BASE (higher is better) ===")
-        print("AP@0.50     :", fmt_delta(awe["ap50"],    base["ap50"]))
-        print("AP@0.75     :", fmt_delta(awe["ap75"],    base["ap75"]))
-        print("mAP@[.5:.95]:", fmt_delta(awe["map5095"], base["map5095"]))
-        print("Precision   :", fmt_delta(awe["P"],       base["P"]))
-        print("Recall      :", fmt_delta(awe["R"],       base["R"]))
-        print("F1          :", fmt_delta(awe["F1"],      base["F1"]))
+        print("\n=== fafw vs. BASE (higher is better) ===")
+        print("AP@0.50     :", fmt_delta(fafw["ap50"],    base["ap50"]))
+        print("AP@0.75     :", fmt_delta(fafw["ap75"],    base["ap75"]))
+        print("mAP@[.5:.95]:", fmt_delta(fafw["map5095"], base["map5095"]))
+        print("Precision   :", fmt_delta(fafw["P"],       base["P"]))
+        print("Recall      :", fmt_delta(fafw["R"],       base["R"]))
+        print("F1          :", fmt_delta(fafw["F1"],      base["F1"]))
 
         # 每类 AP 对比
         if args.show_class:
-            names = awe["names"]
-            print("\nPer-class AP@50:95 (AWE vs BASE, Δ)")
+            names = fafw["names"]
+            print("\nPer-class AP@50:95 (fafw vs BASE, Δ)")
             for i, name in enumerate(names):
-                awe_c  = awe["ap5095_per_class"][i]
+                fafw_c  = fafw["ap5095_per_class"][i]
                 base_c = base["ap5095_per_class"][i]
-                d = awe_c - base_c
+                d = fafw_c - base_c
                 r = (d / (base_c + 1e-12)) * 100.0
-                print(f"{name:>12s} : {awe_c:.4f} vs {base_c:.4f}  (Δ={d:+.4f}, {r:+.1f}%)")
+                print(f"{name:>12s} : {fafw_c:.4f} vs {base_c:.4f}  (Δ={d:+.4f}, {r:+.1f}%)")
     else:
-        # 只评估了 AWE
-        names = awe["names"]
+        # 只评估了 fafw
+        names = fafw["names"]
         if args.show_class:
             print("\nPer-class AP:")
-            ap50_c   = awe["ap50_per_class"]
-            ap5095_c = awe["ap5095_per_class"]
+            ap50_c   = fafw["ap50_per_class"]
+            ap5095_c = fafw["ap5095_per_class"]
             for i, name in enumerate(names):
                 print(f"{name:>12s} | AP50={ap50_c[i]:.4f}  AP50:95={ap5095_c[i]:.4f}")
 
