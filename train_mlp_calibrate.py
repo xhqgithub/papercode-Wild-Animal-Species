@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.ops import nms
 
-# ====== MSA / FER / AWE（与推理版完全对齐；FER 含防过曝守卫）======
+# ====== SAU / LMRA / FAFW（与推理版完全对齐；LMRA 含防过曝守卫）======
 class LayerNormSpatial(nn.Module):
     def __init__(self, c, eps=1e-6, affine=True):
         super().__init__(); self.eps=eps; self.affine=affine
@@ -20,7 +20,7 @@ class LayerNormSpatial(nn.Module):
         xh=(x-u)/torch.sqrt(v+self.eps)
         return xh*self.weight+self.bias if self.affine else xh
 
-class MSA(nn.Module):
+class SAU(nn.Module):
     def __init__(self):
         super().__init__()
         self.c3=nn.Conv2d(1,1,3,padding=1,bias=True)
@@ -33,7 +33,7 @@ class MSA(nn.Module):
         if alpha_boost!=1.0: s = s * alpha_boost
         return s
 
-class FER(nn.Module):
+class LMRA(nn.Module):
     def __init__(self, ch=3):
         super().__init__()
         self.d_c1=nn.Conv2d(1,1,1,bias=True)
@@ -74,7 +74,7 @@ class FER(nn.Module):
         eps   = self.r_bn(self.r_c1(I)) * eps_scale
         return (F_mod + eps).clamp(0.0, 1.0)
 
-class AWE(nn.Module):
+class FAFW(nn.Module):
     def __init__(self, hidden=16):
         super().__init__(); self.fc1=nn.Linear(1,hidden); self.fc2=nn.Linear(hidden,1)
         nn.init.normal_(self.fc1.weight,std=0.05); nn.init.zeros_(self.fc1.bias)
@@ -122,7 +122,7 @@ def to_numpy_img(t: torch.Tensor) -> np.ndarray:
 
 def run_yolo_predict(model, img_tensor:torch.Tensor, imgsz=640, conf=0.25, iou=0.55, device="cuda"):
     t = to_numpy_img(img_tensor)
-    with torch.inference_mode():
+    with torch.inLMRAence_mode():
         res = model.predict(t, imgsz=imgsz, conf=conf, iou=iou, verbose=False, device=device)
     r = res[0]
     if r.boxes is None or r.boxes.xyxy.numel()==0:
@@ -203,7 +203,7 @@ def main():
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--iou",  type=float, default=0.55)
     ap.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    ap.add_argument("--out", type=str, default="runs/awe_calib")
+    ap.add_argument("--out", type=str, default="runs/FAFW_calib")
     ap.add_argument("--epochs", type=int, default=10)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--lam-step", type=float, default=0.05)  # 更细的 λ 网格
@@ -233,14 +233,14 @@ def main():
     model=YOLO(args.weights)
 
     device=args.device
-    msa=MSA().to(device).eval()
-    fer=FER().to(device).eval()
-    for m in (msa, fer):
+    SAU=SAU().to(device).eval()
+    LMRA=LMRA().to(device).eval()
+    for m in (SAU, LMRA):
         for p in m.parameters():
             p.requires_grad=False
 
-    awe=AWE(hidden=16).to(device).train()
-    opt=torch.optim.Adam(awe.parameters(), lr=args.lr)
+    FAFW=FAFW(hidden=16).to(device).train()
+    opt=torch.optim.Adam(FAFW.parameters(), lr=args.lr)
 
     img_paths=[p for p in img_dir.iterdir() if p.suffix.lower() in EXTS]
     lams=np.arange(0.0,1.0+1e-9,args.lam_step)
@@ -258,9 +258,9 @@ def main():
                 continue
             M=load_mask(mpath,(H,W)).to(device)
 
-            with torch.inference_mode():
-                S_hat=msa(M, alpha_boost=args.alpha_boost)
-                I_enh=fer(I,S_hat,
+            with torch.inLMRAence_mode():
+                S_hat=SAU(M, alpha_boost=args.alpha_boost)
+                I_enh=LMRA(I,S_hat,
                           gain_clip=args.gain_clip, strength=args.strength, eps_scale=args.eps_scale,
                           guard_mask=(M>0.2).float(),
                           max_fg_boost=args.max_fg_boost, max_fg_abs=args.max_fg_abs)
@@ -294,7 +294,7 @@ def main():
             else:
                 lam_t = lam_best
 
-            lam_pred=awe(S_hat)  # [1,1]
+            lam_pred=FAFW(S_hat)  # [1,1]
             target=torch.tensor([[lam_t]], dtype=torch.float32, device=lam_pred.device)
             loss=F.mse_loss(lam_pred, target)
             opt.zero_grad(); loss.backward(); opt.step()
@@ -313,10 +313,10 @@ def main():
         "gain_clip": args.gain_clip, "strength": args.strength, "eps_scale": args.eps_scale,
         "max_fg_boost": args.max_fg_boost, "max_fg_abs": args.max_fg_abs,
     }
-    torch.save({"awe":awe.state_dict(), "meta":meta}, out_dir/"awe_weights.pth")
-    (out_dir/"awe_meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
-    print("Saved:", (out_dir/"awe_weights.pth").resolve())
-    print("Meta :", (out_dir/"awe_meta.json").resolve())
+    torch.save({"FAFW":FAFW.state_dict(), "meta":meta}, out_dir/"FAFW_weights.pth")
+    (out_dir/"FAFW_meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+    print("Saved:", (out_dir/"FAFW_weights.pth").resolve())
+    print("Meta :", (out_dir/"FAFW_meta.json").resolve())
 
 if __name__=="__main__":
     main()
