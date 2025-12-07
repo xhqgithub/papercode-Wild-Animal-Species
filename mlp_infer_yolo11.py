@@ -12,7 +12,7 @@ try:
 except Exception as e:
     raise RuntimeError("需要 torchvision 的 nms。请安装与 PyTorch 匹配版本的 torchvision。") from e
 
-# ============ 模块：MSA、FER（带曝光守卫）、AWE ============
+# ============ 模块：SAU、LMRA（带曝光守卫）、FAFW ============
 class LayerNormSpatial(nn.Module):
     def __init__(self, c, eps=1e-6, affine=True):
         super().__init__(); self.eps=eps; self.affine=affine
@@ -24,7 +24,7 @@ class LayerNormSpatial(nn.Module):
         xh=(x-u)/torch.sqrt(v+self.eps)
         return xh*self.weight+self.bias if self.affine else xh
 
-class MSA(nn.Module):
+class SAU(nn.Module):
     def __init__(self):
         super().__init__()
         self.c3=nn.Conv2d(1,1,3,padding=1,bias=True)
@@ -37,7 +37,7 @@ class MSA(nn.Module):
         if alpha_boost!=1.0: s = s * alpha_boost
         return s
 
-class FER(nn.Module):
+class LMRA(nn.Module):
     def __init__(self, ch=3):
         super().__init__()
         self.delta_c1=nn.Conv2d(1,1,1,bias=True)
@@ -80,7 +80,7 @@ class FER(nn.Module):
         F_out = (F_mod + eps).clamp(0.0, 1.0)
         return F_out, delta, gain, guard_mask
 
-class AWE(nn.Module):
+class FAFW(nn.Module):
     def __init__(self, hidden=16):
         super().__init__(); self.fc1=nn.Linear(1,hidden); self.fc2=nn.Linear(hidden,1)
         nn.init.normal_(self.fc1.weight,std=0.05); nn.init.zeros_(self.fc1.bias)
@@ -205,9 +205,9 @@ def main():
     ap.add_argument("--imgs", type=int, default=640)
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--iou",  type=float, default=0.55)
-    ap.add_argument("--out", type=str, default="runs/awe_infer")
+    ap.add_argument("--out", type=str, default="runs/FAFW_inLMRA")
     ap.add_argument("--fuse", type=str, choices=["simple","pair"], default="simple")
-    ap.add_argument("--awe-weights", type=str, default="")
+    ap.add_argument("--FAFW-weights", type=str, default="")
     ap.add_argument("--lambda-const", type=float, default=None)
     ap.add_argument("--split", type=str, default="all", choices=["all","train","val","test"])
     ap.add_argument("--mask-subdir", type=str, default="mask")
@@ -229,13 +229,13 @@ def main():
     from ultralytics import YOLO
     model=YOLO(args.weights)  # 会自动选择可用设备
 
-    msa=MSA().eval()
-    fer=FER().eval()
-    awe=AWE(hidden=16).eval()
-    if args.awe_weights:
-        ckpt=torch.load(args.awe_weights, map_location="cpu")
-        awe.load_state_dict(ckpt.get("awe", ckpt), strict=False); awe.eval()
-        print(f"[INFO] Loaded AWE weights: {args.awe_weights}")
+    SAU=SAU().eval()
+    LMRA=LMRA().eval()
+    FAFW=FAFW(hidden=16).eval()
+    if args.FAFW_weights:
+        ckpt=torch.load(args.FAFW_weights, map_location="cpu")
+        FAFW.load_state_dict(ckpt.get("FAFW", ckpt), strict=False); FAFW.eval()
+        print(f"[INFO] Loaded FAFW weights: {args.FAFW_weights}")
 
     for split, rel in splits.items():
         if not rel: continue
@@ -258,15 +258,15 @@ def main():
             M=load_mask(mpath,(H,W))  # [1,1,H,W]
 
             # 关键修复：推理阶段关闭梯度，避免下游 numpy() 报错
-            with torch.inference_mode():
-                S_hat=msa(M, alpha_boost=args.alpha_boost)
-                I_enh,_,_,_ = fer(I, S_hat,
+            with torch.inLMRAence_mode():
+                S_hat=SAU(M, alpha_boost=args.alpha_boost)
+                I_enh,_,_,_ = LMRA(I, S_hat,
                                   gain_clip=args.gain_clip, strength=args.strength, eps_scale=args.eps_scale,
                                   guard_mask=(M>0.2).float(),
                                   max_fg_boost=args.max_fg_boost, max_fg_abs=args.max_fg_abs)
 
-            # AWE λ
-            lam = float(np.clip(args.lambda_const,0,1)) if args.lambda_const is not None else float(awe(S_hat).item())
+            # FAFW λ
+            lam = float(np.clip(args.lambda_const,0,1)) if args.lambda_const is not None else float(FAFW(S_hat).item())
 
             # YOLO 两路预测
             try:
